@@ -1,0 +1,20 @@
+{
+  "name": "MDspectra Watch Together",
+  "short_name": "MDspectra",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#08080c",
+  "theme_color": "#6366f1",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/1179/1179069.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/1179/1179069.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

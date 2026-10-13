@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MDSpectra — Watch & Listen Together</title>
+  
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#6366f1">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- 1. IMPORTACIÓN OBLIGATORIA DE SDKs Y APIs PARA SINCRONIZACIÓN -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://www.youtube.com/iframe_api"></script>
+  <script src="https://player.vimeo.com/api/player.js"></script>
+
+  <style>
+    :root {
+      --bg-dark: #08080c;
+      --card-bg: rgba(22, 22, 30, 0.65);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --text: #f3f4f6;
+      --text-muted: #9ca3af;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+    
+    body { 
+      display: flex; 
+      flex-direction: column; 
+      min-height: 100vh; 
+      background: var(--bg-dark); 
+      color: var(--text); 
+      overflow-x: hidden;
+    }
+
+    header {
+      height: 60px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid var(--card-border); background: rgba(10, 10, 15, 0.7); backdrop-filter: blur(12px);
+      position: sticky; top: 0; z-index: 100;
+    }
+    .brand { font-weight: 700; font-size: 1.15rem; color: #fff; letter-spacing: -0.5px; }
+
+    main { 
+      flex: 1; 
+      display: flex; 
+      padding: 16px; 
+      gap: 16px; 
+      height: calc(100vh - 60px); 
+    }
+
+    .media-area { flex: 3; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+    .glass-panel {
+      background: var(--card-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--card-border); border-radius: 14px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+
+    .controls-bar { padding: 12px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .url-input { flex: 1; min-width: 180px; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--card-border); padding: 10px 14px; border-radius: 8px; color: #fff; outline: none; }
+    
+    .btn { padding: 10px 16px; border-radius: 8px; border: none; font-weight: 600; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; transition: 0.2s; white-space: nowrap; }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-secondary { background: rgba(255, 255, 255, 0.05); color: var(--text); border: 1px solid var(--card-border); }
+    .btn-secondary:hover { background: rgba(255, 255, 255, 0.1); }
+    .btn-accent { background: #10b981; color: #fff; }
+    .btn-accent:hover { background: #059669; }
+
+    .video-viewport { 
+      flex: 1; 
+      position: relative; 
+      background: #000; 
+      border-radius: 14px; 
+      overflow: hidden; 
+      display: flex; 
+      align-items: center; 
+      justify-content: center; 
+      border: 1px solid var(--card-border);
+      min-height: 240px;
+    }
+    
+    video, audio, iframe { width: 100%; height: 100%; border: none; }
+
+    #active-controls { display: none; }
+
+    /* Modal de Cola */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(10px);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .modal-content {
+      width: 100%; max-width: 550px;
+      padding: 20px;
+      display: flex; flex-direction: column; gap: 16px;
+    }
+
+    .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 12px; }
+    .queue-list { display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto; }
+    .queue-item { background: rgba(255, 255, 255, 0.04); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--card-border); font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center; }
+
+    /* Chat */
+    .chat-area { flex: 1; min-width: 280px; max-width: 380px; display: flex; flex-direction: column; overflow: hidden; }
+    .chat-header { padding: 14px; font-weight: 600; border-bottom: 1px solid var(--card-border); font-size: 0.9rem; }
+    .messages-list { flex: 1; padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+    .msg-item { display: flex; flex-direction: column; gap: 2px; font-size: 0.85rem; }
+    .msg-author { font-weight: 600; color: var(--primary); font-size: 0.75rem; }
+    .msg-body { background: rgba(255, 255, 255, 0.05); padding: 8px 12px; border-radius: 8px; width: fit-content; word-break: break-word; }
+    .chat-input-wrapper { padding: 12px; border-top: 1px solid var(--card-border); display: flex; gap: 8px; }
+    .chat-input-wrapper input { flex: 1; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--card-border); padding: 10px; border-radius: 8px; color: #fff; outline: none; }
+
+    @media (max-width: 868px) {
+      body { overflow-y: auto; }
+      main { flex-direction: column; height: auto; padding: 10px; gap: 12px; }
+      .media-area { flex: none; width: 100%; }
+      .video-viewport { height: 50vw; min-height: 200px; max-height: 400px; }
+      .chat-area { flex: none; width: 100%; max-width: 100%; height: 380px; }
+      .controls-bar { flex-direction: column; align-items: stretch; }
+      .btn { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">MDSpectra</div>
+    <div>
+      <button id="btn-share" class="btn btn-secondary">🔗 Copiar enlace</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="media-area">
+      
+      <!-- 1. BARRA INICIAL -->
+      <div id="initial-controls" class="controls-bar glass-panel">
+        <input type="text" id="video-url" class="url-input" placeholder="Pega el enlace del primer video (YouTube, Vimeo, vimeos.net, MP4...)...">
+        <button id="btn-load-initial" class="btn btn-primary">Reproducir Ahora</button>
+        <label class="btn btn-secondary" style="cursor: pointer;">
+          Archivo local
+          <input type="file" id="local-file-picker" accept="video/*,audio/*" style="display: none;">
+        </label>
+      </div>
+
+      <!-- 2. CONTROLES ACTIVOS -->
+      <div id="active-controls" class="controls-bar glass-panel">
+        <button id="btn-next-video" class="btn btn-accent">⏭ Reproducir el siguiente video</button>
+        <button id="btn-open-queue" class="btn btn-primary">➕ Agregar videos a la cola (<span id="queue-count">0</span>)</button>
+      </div>
+
+      <!-- REPRODUCTOR -->
+      <div class="video-viewport glass-panel" id="player-container">
+        <div id="placeholder" style="color: var(--text-muted); text-align: center; padding: 20px;">
+          Ingresa un enlace en la barra superior para iniciar la sala.
+        </div>
+      </div>
+    </section>
+
+    <!-- CHAT LATERAL -->
+    <aside class="chat-area glass-panel">
+      <div class="chat-header">Chat de la Sala</div>
+      <div id="chat-messages" class="messages-list"></div>
+      <form id="chat-form" class="chat-input-wrapper">
+        <input type="text" id="chat-input" placeholder="Escribe un mensaje..." autocomplete="off">
+        <button type="submit" class="btn btn-primary">Enviar</button>
+      </form>
+    </aside>
+  </main>
+
+  <!-- MODAL DE COLA -->
+  <div id="queue-modal" class="modal-overlay">
+    <div class="modal-content glass-panel">
+      <div class="modal-header">
+        <h3>Cola de Reproducción</h3>
+        <button id="btn-close-modal" class="btn btn-secondary" style="padding: 4px 10px;">✕</button>
+      </div>
+
+      <div style="display: flex; gap: 8px; flex-direction: column;">
+        <input type="text" id="queue-url-input" class="url-input" placeholder="Pegar enlace para agregar a la cola...">
+        <button id="btn-add-queue" class="btn btn-primary">Agregar a la Cola</button>
+      </div>
+
+      <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 8px;">Videos pendientes:</div>
+      <div id="queue-list-container" class="queue-list"></div>
+    </div>
+  </div>
+
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    let roomId = urlParams.get('room');
+    if (!roomId) {
+      roomId = Math.random().toString(36).substring(2, 9);
+      window.history.replaceState({}, '', `?room=${roomId}`);
+    }
+
+    const socket = typeof io !== 'undefined' ? io() : null;
+    const username = prompt("Elige tu alias:") || "Usuario_" + Math.floor(Math.random() * 100);
+
+    let ignoreNextEvent = false;
+    let ytPlayer = null;
+    let vimeoPlayer = null;
+    let activeType = null;
+
+    const initialControls = document.getElementById('initial-controls');
+    const activeControls = document.getElementById('active-controls');
+    const playerContainer = document.getElementById('player-container');
+    const queueModal = document.getElementById('queue-modal');
+    const queueCount = document.getElementById('queue-count');
+    const queueListContainer = document.getElementById('queue-list-container');
+
+    document.getElementById('btn-share').addEventListener('click', () => {
+      navigator.clipboard.writeText(window.location.href);
+      alert('¡Enlace de invitación copiado!');
+    });
+
+    document.getElementById('btn-open-queue').addEventListener('click', () => queueModal.style.display = 'flex');
+    document.getElementById('btn-close-modal').addEventListener('click', () => queueModal.style.display = 'none');
+
+    if (socket) {
+      socket.emit('join-room', { roomId, username });
+
+      socket.on('sync-state', (state) => {
+        if (state.videoSource && state.sourceType !== 'none') {
+          showActiveControlsMode();
+          processAndLoadSource(state.videoSource, state.sourceType, state.currentTime, state.isPlaying);
+        }
+        updateQueueUI(state.queue || []);
+      });
+
+      socket.on('source-changed', ({ source, sourceType }) => {
+        showActiveControlsMode();
+        processAndLoadSource(source, sourceType, 0, true);
+      });
+
+      socket.on('queue-updated', (queue) => updateQueueUI(queue));
+      socket.on('chat-message', ({ user, text }) => appendChatMessage(user, text));
+
+      // Receptor centralizado de acciones de reproducción
+      socket.on('apply-action', async (action) => {
+        ignoreNextEvent = true;
+        try {
+          if (activeType === 'youtube' && ytPlayer && ytPlayer.getCurrentTime) {
+            if (Math.abs(ytPlayer.getCurrentTime() - action.time) > 0.8) {
+              ytPlayer.seekTo(action.time, true);
+            }
+            if (action.type === 'play') ytPlayer.playVideo();
+            else if (action.type === 'pause') ytPlayer.pauseVideo();
+          } 
+          else if (activeType === 'vimeo' && vimeoPlayer) {
+            const current = await vimeoPlayer.getCurrentTime();
+            if (Math.abs(current - action.time) > 0.8) {
+              await vimeoPlayer.setCurrentTime(action.time);
+            }
+            if (action.type === 'play') await vimeoPlayer.play();
+            else if (action.type === 'pause') await vimeoPlayer.pause();
+          }
+          else {
+            const video = playerContainer.querySelector('video, audio');
+            if (video) {
+              if (Math.abs(video.currentTime - action.time) > 0.8) {
+                video.currentTime = action.time;
+              }
+              if (action.type === 'play' && video.paused) video.play().catch(() => {});
+              else if (action.type === 'pause' && !video.paused) video.pause();
+            }
+          }
+        } catch(e) { console.warn(e); }
+
+        setTimeout(() => { ignoreNextEvent = false; }, 300);
+      });
+    }
+
+    document.getElementById('btn-load-initial').addEventListener('click', () => {
+      const url = document.getElementById('video-url').value.trim();
+      if (!url) return;
+      const type = detectSourceType(url);
+      showActiveControlsMode();
+      processAndLoadSource(url, type, 0, true);
+      if (socket) socket.emit('change-source', { source: url, sourceType: type });
+    });
+
+    document.getElementById('local-file-picker').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const localBlob = URL.createObjectURL(file);
+        const type = file.type.startsWith('audio') ? 'audio' : 'html5';
+        showActiveControlsMode();
+        processAndLoadSource(localBlob, type, 0, true);
+        if (socket) socket.emit('change-source', { source: file.name, sourceType: 'local' });
+      }
+    });
+
+    document.getElementById('btn-add-queue').addEventListener('click', () => {
+      const input = document.getElementById('queue-url-input');
+      const url = input.value.trim();
+      if (!url) return;
+      const type = detectSourceType(url);
+      if (socket) socket.emit('add-to-queue', { source: url, sourceType: type, title: url });
+      input.value = '';
+    });
+
+    document.getElementById('btn-next-video').addEventListener('click', () => {
+      if (socket) socket.emit('play-next-in-queue');
+    });
+
+    function showActiveControlsMode() {
+      initialControls.style.display = 'none';
+      activeControls.style.display = 'flex';
+    }
+
+    function detectSourceType(url) {
+      if (url.includes('youtube.com') || url.includes('youtu.be')) return 'youtube';
+      if (url.includes('vimeo.com') && !url.includes('vimeos.net')) return 'vimeo';
+      if (url.includes('drive.google.com')) return 'drive';
+      if (url.includes('embed') || url.includes('vimeos.net')) return 'embed';
+      if (url.match(/\.(mp3|wav|ogg)$/i)) return 'audio';
+      return 'html5';
+    }
+
+    function destroyCurrentPlayers() {
+      if (ytPlayer && ytPlayer.destroy) ytPlayer.destroy();
+      ytPlayer = null;
+      vimeoPlayer = null;
+      activeType = null;
+      playerContainer.innerHTML = '';
+    }
+
+    function processAndLoadSource(src, type, initialTime = 0, autoPlay = true) {
+      destroyCurrentPlayers();
+      activeType = type;
+
+      // 1. YOUTUBE CON API OFICIAL
+      if (type === 'youtube') {
+        let videoId = src.split('v=')[1] || src.split('youtu.be/')[1];
+        if (videoId && videoId.includes('&')) videoId = videoId.split('&')[0];
+
+        playerContainer.innerHTML = `<div id="yt-player"></div>`;
+        ytPlayer = new YT.Player('yt-player', {
+          height: '100%',
+          width: '100%',
+          videoId: videoId,
+          playerVars: { autoplay: autoPlay ? 1 : 0, start: Math.floor(initialTime) },
+          events: {
+            'onStateChange': (event) => {
+              if (ignoreNextEvent || !socket) return;
+              const currentTime = ytPlayer.getCurrentTime();
+              if (event.data === YT.PlayerState.PLAYING) {
+                socket.emit('playback-action', { type: 'play', time: currentTime });
+              } else if (event.data === YT.PlayerState.PAUSED) {
+                socket.emit('playback-action', { type: 'pause', time: currentTime });
+              }
+            }
+          }
+        });
+      } 
+      // 2. VIMEO CON API OFICIAL
+      else if (type === 'vimeo') {
+        const vimeoId = src.split('vimeo.com/')[1];
+        playerContainer.innerHTML = `<iframe id="vimeo-player" src="https://player.vimeo.com/video/${vimeoId}?autoplay=${autoPlay ? 1 : 0}#t=${Math.floor(initialTime)}s" allow="autoplay; fullscreen" allowfullscreen style="width:100%;height:100%;"></iframe>`;
+        
+        vimeoPlayer = new Vimeo.Player('vimeo-player');
+        vimeoPlayer.on('play', async () => {
+          if (ignoreNextEvent || !socket) return;
+          const time = await vimeoPlayer.getCurrentTime();
+          socket.emit('playback-action', { type: 'play', time });
+        });
+        vimeoPlayer.on('pause', async () => {
+          if (ignoreNextEvent || !socket) return;
+          const time = await vimeoPlayer.getCurrentTime();
+          socket.emit('playback-action', { type: 'pause', time });
+        });
+      } 
+      // 3. EMBEDS (ej. vimeos.net) / GOOGLE DRIVE
+      else if (type === 'embed' || type === 'drive') {
+        let finalSrc = src;
+        if (type === 'drive') {
+          const driveId = src.match(/file\/d\/([^\/]+)/)?.[1] || src.match(/id=([^&]+)/)?.[1];
+          if (driveId) finalSrc = `https://drive.google.com/file/d/${driveId}/preview`;
+        }
+        playerContainer.innerHTML = `<iframe src="${finalSrc}" allow="autoplay; encrypted-media; fullscreen" allowfullscreen style="width:100%; height:100%; border:none;"></iframe>`;
+      }
+      // 4. ARCHIVOS HTML5 DIRECTOS / LOCALES / AUDIO
+      else {
+        const media = document.createElement(type === 'audio' ? 'audio' : 'video');
+        media.controls = true;
+        media.src = src;
+        if (type === 'audio') media.style.width = '80%';
+        playerContainer.appendChild(media);
+
+        if (initialTime) media.currentTime = initialTime;
+        if (autoPlay) media.play().catch(() => {});
+
+        ['play', 'pause', 'seeked'].forEach(evt => {
+          media.addEventListener(evt, () => {
+            if (ignoreNextEvent || !socket) return;
+            const actionType = evt === 'seeked' ? 'seek' : evt;
+            socket.emit('playback-action', { type: actionType, time: media.currentTime });
+          });
+        });
+      }
+    }
+
+    function updateQueueUI(queue) {
+      queueCount.textContent = queue.length;
+      queueListContainer.innerHTML = '';
+
+      if (queue.length === 0) {
+        queueListContainer.innerHTML = `<div style="color: var(--text-muted); font-size: 0.85rem; text-align: center;">La cola está vacía</div>`;
+        return;
+      }
+
+      queue.forEach((item, index) => {
+        const div = document.createElement('div');
+        div.className = 'queue-item';
+        div.innerHTML = `<span><b>#${index + 1}</b> ${item.title}</span><span style="font-size: 0.75rem; color: var(--primary);">${item.sourceType}</span>`;
+        queueListContainer.appendChild(div);
+      });
+    }
+
+    // Chat
+    const chatForm = document.getElementById('chat-form');
+    const chatInput = document.getElementById('chat-input');
+    const chatMessages = document.getElementById('chat-messages');
+
+    chatForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = chatInput.value.trim();
+      if (text && socket) {
+        socket.emit('send-message', text);
+        chatInput.value = '';
+      }
+    });
+
+    function appendChatMessage(user, text) {
+      const div = document.createElement('div');
+      div.className = 'msg-item';
+      div.innerHTML = `<span class="msg-author">${user}</span><div class="msg-body">${text}</div>`;
+      chatMessages.appendChild(div);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+  </script>
+</body>
+</html>
